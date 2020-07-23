@@ -10,7 +10,7 @@ import Foundation
 
 // App Sate used used to changes to the app view controllers (Settings, for example)
 // Recommended way of utilizing is when viewVillAppear(..) is called,
-// look in the app state to see if further action must be t
+// look in the app state to see if further action must be taken
 
 // Setup App States to comminicate between views
 
@@ -49,14 +49,21 @@ enum GeneralSettingsChangeEnum: Int {
 class AppStateController {
    
    // add app states & methods here
+   var authDelegate: AuthenticationDelegate?
 
    // General Settings States
    var generalSettingsChanged : Bool = false
    var generalSettingsChanges : Int = 0
 
+   // Nightscout Credentials Changed
+   var nightscoutCredentialsChanged : Bool = false
+   
+   // Dexcom Credentials Changed
+   var dexcomCredentialsChanged : Bool = false
+   
    // Chart Settings State
    var chartSettingsChanged : Bool = false // settings change has ocurred
-   var chartSettingsChanges: Int = 0      // what settings have changed
+   var chartSettingsChanges: Int = 0       // what settings have changed
    
    // Info Data Settings State; no need for flags
    var infoDataSettingsChanged: Bool = false

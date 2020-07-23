@@ -11,9 +11,16 @@ import Eureka
 import EventKit
 import EventKitUI
 
-class SettingsViewController: FormViewController {
 
-   var appStateController: AppStateController?
+protocol AuthenticationDelegate {
+   func nightscoutDidConnect() -> Bool
+   func dexcomDidConnect() -> Bool
+}
+
+
+class SettingsViewController: FormViewController, UITextFieldDelegate {
+
+    var appStateController: AppStateController?
     
     func showHideNSDetails() {
         var isHidden = false
@@ -32,8 +39,13 @@ class SettingsViewController: FormViewController {
         
         guard let nightscoutTab = self.tabBarController?.tabBar.items![3] else { return }
         nightscoutTab.isEnabled = isEnabled
-        
     }
+   
+   override func viewDidAppear(_ animated: Bool) {
+       super.viewDidAppear(animated)
+       // authenticateDexcom()
+       // authenticateNightscout()
+   }
    
    override func viewDidLoad() {
         super.viewDidLoad()
@@ -41,11 +53,13 @@ class SettingsViewController: FormViewController {
             overrideUserInterfaceStyle = .dark
         }
     
-        
-                        
         form
-        +++ Section(header: "Nightscout Settings", footer: "Changing Nightscout settings requires an app restart.")
+        +++ Section(header:"",footer: "Changing Nightscout settings requires an app restart.") {
+           $0.tag = "nightscoutHeader"
+           $0.header!.title = "Nightscout Settings"
+        }
         <<< TextRow(){ row in
+            
             row.title = "URL"
             row.placeholder = "https://mycgm.herokuapp.com"
             row.value = UserDefaultsRepository.url.value
@@ -65,8 +79,15 @@ class SettingsViewController: FormViewController {
             // set the row value back to the correctly formatted URL so that the user immediately sees how it should have been written
             row.value = UserDefaultsRepository.url.value
             self.showHideNSDetails()
-            globalVariables.nsVerifiedAlert = 0
-            }
+            globalVariables.nsVerifiedAlert = 0            
+        }.onCellHighlightChanged{(cell,row) in
+           // done editing
+           if row.isHighlighted == false {
+              // self.authenticateNightscout()
+              self.appStateController!.nightscoutCredentialsChanged = true
+              globalVariables.nsVerifiedAlert = 0
+           }
+        }
         <<< TextRow(){ row in
             row.title = "NS Token"
             row.placeholder = "Leave blank if not using tokens"
@@ -80,6 +101,14 @@ class SettingsViewController: FormViewController {
             guard let value = row.value else { return }
             UserDefaultsRepository.token.value = value
             globalVariables.nsVerifiedAlert = 0
+        }.onCellHighlightChanged{(cell,row) in
+           // done editing
+           if row.isHighlighted == false {
+           
+              // self.authenticateNightscout()
+              self.appStateController!.nightscoutCredentialsChanged = true
+              globalVariables.nsVerifiedAlert = 0
+           }
         }
         <<< SegmentedRow<String>("units") { row in
             row.title = "Units"
@@ -89,33 +118,59 @@ class SettingsViewController: FormViewController {
             guard let value = row.value else { return }
             UserDefaultsRepository.units.value = value
         }
-        +++ Section("Dexcom Settings")
+        +++ Section("") {
+           $0.tag = "dexcomHeader"
+           $0.header!.title = "Dexcom Settings"
+        }
         <<< TextRow(){ row in
             row.title = "User Name"
             row.value = UserDefaultsRepository.shareUserName.value
+            row.tag = "dexcomUserNameRow"
         }.cellSetup { (cell, row) in
             cell.textField.autocorrectionType = .no
-        }.onChange { row in
-            if row.value == nil {
-                UserDefaultsRepository.shareUserName.value = ""
-            }
-            guard let value = row.value else { return }
-            UserDefaultsRepository.shareUserName.value = value
-            globalVariables.dexVerifiedAlert = 0
+
+        }.onCellHighlightChanged{(cell,row) in
+           // done editing
+           if row.isHighlighted == false {
+              if let value = row.value  {
+                 UserDefaultsRepository.shareUserName.value = value
+              } else {
+                 UserDefaultsRepository.shareUserName.value = ""
+              }
+              /*
+              // try to authenticate if there is a password
+              if let passwordRow = self.form.rowBy(tag: "dexcomPasswordRow")  {
+                 if let value = passwordRow.baseValue as? String {
+                    if value != "" {
+                       self.authenticateDexcom()
+                    }
+                 }
+              }
+              */
+              self.appStateController!.dexcomCredentialsChanged = true
+              globalVariables.dexVerifiedAlert = 0
+           }
         }
         <<< TextRow(){ row in
             row.title = "Password"
             row.value = UserDefaultsRepository.sharePassword.value
+            row.tag = "dexcomPasswordRow"
         }.cellSetup { (cell, row) in
             cell.textField.autocorrectionType = .no
             cell.textField.isSecureTextEntry = true
-        }.onChange { row in
-            if row.value == nil {
-                UserDefaultsRepository.sharePassword.value = ""
-            }
-            guard let value = row.value else { return }
-            UserDefaultsRepository.sharePassword.value = value
-            globalVariables.dexVerifiedAlert = 0
+        }.onCellHighlightChanged{(cell,row) in
+           // done editing
+           if row.isHighlighted == false {
+              if let value = row.value {
+                 UserDefaultsRepository.sharePassword.value = value
+              } else {
+                 UserDefaultsRepository.sharePassword.value = ""
+              }
+              
+              // self.authenticateDexcom()
+              self.appStateController!.dexcomCredentialsChanged = true
+              globalVariables.dexVerifiedAlert = 0
+           }
         }
         <<< SegmentedRow<String>("shareServer") { row in
             row.title = "Server"
@@ -124,6 +179,7 @@ class SettingsViewController: FormViewController {
         }.onChange { row in
             guard let value = row.value else { return }
             UserDefaultsRepository.shareServer.value = value
+            self.appStateController!.dexcomCredentialsChanged = true
         }
         
         +++ Section("App Settings")
@@ -185,9 +241,94 @@ class SettingsViewController: FormViewController {
             
         }
     
+        setupNotifications()
         showHideNSDetails()
-      
+            
     }
     
+    // Notifications
+    private func setupNotifications() {
+       NotificationCenter.default.addObserver(self, selector: #selector(didCompleteDexcomAuthentication(_:)), name: .didCompleteDexcomAuthentication, object: nil)
+       NotificationCenter.default.addObserver(self, selector: #selector(didCompleteNightscoutAuthentication(_:)), name: .didCompleteNightscoutAuthentication, object: nil)
+    }
+    @objc func didCompleteDexcomAuthentication(_ notification: Notification) {
+       let valid = notification.object as? Bool
+       let section = self.form.sectionBy(tag: "dexcomHeader")
+       if  valid != nil && valid! {
+          UserDefaultsRepository.shareAuthStatus.value = true
+          section!.header!.title = "Dexcom Settings (verified)"
+       } else {
+          UserDefaultsRepository.shareAuthStatus.value = false
+          section!.header!.title = "Dexcom Settings (unverified)"
+       }
+       // need to send this to the main thread
+       DispatchQueue.main.async {
+          // section!.reload()
+          self.tableView.reloadData()
+       }
+    }
+    @objc func didCompleteNightscoutAuthentication(_ notification: Notification) {
+       let valid = notification.object as? Bool
+       let section = self.form.sectionBy(tag: "nightscoutHeader")
+       if  valid != nil && valid! {
+          UserDefaultsRepository.nightscoutAuthStatus.value = true
+          section!.header!.title = "Nightscout Settings (verified)"
+       } else {
+          UserDefaultsRepository.nightscoutAuthStatus.value = false
+          section!.header!.title = "Nightscout Settings (unverified)"
+       }
+       // need to send this to the main thread
+       DispatchQueue.main.async {
+          // section!.reload()
+          self.tableView.reloadData()
+       }
+    }
     
+    private func authenticateNightscout() {
+       
+       // not verified yet
+       let section = self.form.sectionBy(tag: "nightscoutHeader")
+       UserDefaultsRepository.nightscoutAuthStatus.value = false
+       section!.header!.title = "Nightscout Settings (unverified)"
+       //section!.reload()
+       self.tableView.reloadData()
+       
+       NotificationCenter.default.post(name: .needNightscoutAuthentication, object: nil)
+       /*
+       let section = self.form.sectionBy(tag: "nightscoutHeader")
+       let didConnect = self.appStateController?.authDelegate?.nightscoutDidConnect()
+       if ((didConnect != nil) && didConnect!) {
+          UserDefaultsRepository.nightscoutAuthStatus.value = true
+          section!.header!.title = "Nightscout Settings (verified)"
+       } else {
+          UserDefaultsRepository.shareAuthStatus.value = false
+          section!.header!.title = "Nightscout Settings (unverified)"
+       }
+       section?.reload()
+       */
+    }
+    
+    private func authenticateDexcom() {
+    
+       // not verified yet
+       let section = self.form.sectionBy(tag: "dexcomHeader")
+       UserDefaultsRepository.nightscoutAuthStatus.value = false
+       section!.header!.title = "Dexcom Settings (unverified)"
+       //section!.reload()
+       self.tableView.reloadData()
+       
+       NotificationCenter.default.post(name: .needDexcomAuthentication, object: nil)
+       /*
+       let section = self.form.sectionBy(tag: "dexcomHeader")
+       let didConnect = self.appStateController?.authDelegate?.dexcomDidConnect()
+       if( didConnect != nil && didConnect! ) {
+          UserDefaultsRepository.shareAuthStatus.value = true
+          section!.header!.title = "Dexcom Settings (verified)"
+       } else {
+          UserDefaultsRepository.shareAuthStatus.value = false
+          section!.header!.title = "Dexcom Settings (unverified)"
+       }
+       section?.reload()
+       */
+   }
 }

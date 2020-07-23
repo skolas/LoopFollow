@@ -123,6 +123,17 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        // notification delegate
+        //let userNotificationCenter = UNUserNotificationCenter.current()
+        //userNotificationCenter.delegate = self
+
+
+        // become the authentication delegates
+        // self.appStateController?.authDelegate = self
+
+        // setup auth notifications
+        self.setupAuthNotification()
 
         // reset the infoTable names in case we add or delete items
         UserDefaultsRepository.infoNames.value.removeAll()
@@ -212,6 +223,22 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
         // TODO: move to a function ?
         if let appState = self.appStateController {
         
+           if appState.nightscoutCredentialsChanged    {
+           
+              // do anything? reset timer?
+           }
+           if appState.dexcomCredentialsChanged {
+             
+              // instantiate another dexShare with new credentials
+              let shareUserName = UserDefaultsRepository.shareUserName.value
+              let sharePassword = UserDefaultsRepository.sharePassword.value
+              let shareServer = UserDefaultsRepository.shareServer.value == "US" ?KnownShareServers.US.rawValue : KnownShareServers.NON_US.rawValue
+             
+              dexShare = ShareClient(username: shareUserName, password: sharePassword, shareServer: shareServer )
+              
+              // reset timer here ?
+           
+           }
            if appState.chartSettingsChanged {
               
               // can look at settings flags to be more fine tuned
@@ -598,28 +625,21 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
         print(logText)
         
     }
+    func sendNotification(title: String, body: String) {
     
-    
-    // General Notifications
-    func sendNotification(title: String, body: String)
-    {
-       // UNUserNotificationCenter.current().delegate = self
-        
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
-        
+       let content = UNMutableNotificationContent()
+       content.title = title
+       content.body = body
+       content.sound = .default
+       
+       let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+       let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
+       UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
     }
     
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        
+       return
     }
-    
-    
+
 }
 
